@@ -126,8 +126,8 @@ window.addEventListener('error', function (e) {
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.55.0/dist/umd/supabase.min.js"></script>
 <script>
 /* ===== SUPABASE CONFIGURATION ===== */
-const SUPABASE_URL = 'https://lxvjaakvabyuyboyciqa.supabase.co';
-const SUPABASE_ANON_KEY = 'sb_publishable_Avq6BxWX3jgtB4wIOR_ezA_rw-14Wex';
+const SUPABASE_URL = 'https://fphdvevlpnmizwrjcave.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_puIIjtrpVo3CddnS38ns5g_g18bsxRy';
 /* ================================== */
 
 const configured = !SUPABASE_URL.startsWith('PASTE') && !SUPABASE_ANON_KEY.startsWith('PASTE');
@@ -142,6 +142,7 @@ const myDeviceId = localStorage.getItem('bus_tracker_device_id') || (() => {
 })();
 
 let buses = [], locs = {}, stopsCache = {}, map, liveChannel, tick, watchId, demoTimer, sharing = null;
+let busesLoadError = '';
 
 const rn = b => (b.name.match(/\d+/) || ['🚌'])[0];
 const esc = t => String(t || '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -212,14 +213,24 @@ function cleanup() {
 
 // Load buses and locations from database
 async function loadBuses() {
+  busesLoadError = '';
   try {
-    const { data: bList } = await sb.from('buses').select('*').order('id');
-    if (bList && bList.length) buses = bList;
-    const { data: lList } = await sb.from('bus_locations').select('*');
+    const { data: bList, error: bError } = await sb.from('buses').select('*').order('id');
+    if (bError) {
+      buses = [];
+      busesLoadError = bError.message || 'Supabase rejected the buses query.';
+      console.error('Error loading buses:', bError);
+      return;
+    }
+    buses = Array.isArray(bList) ? bList : [];
+    const { data: lList, error: lError } = await sb.from('bus_locations').select('*');
+    if (lError) console.warn('Could not load bus locations:', lError);
     if (lList) {
       locs = Object.fromEntries(lList.map(r => [r.bus_id, r]));
     }
   } catch (e) {
+    buses = [];
+    busesLoadError = e && e.message ? e.message : String(e);
     console.error('Error loading buses:', e);
   }
 }
@@ -518,6 +529,9 @@ async function busList() {
   const draw = () => {
     const m = app.querySelector('main');
     if (!m) return;
+    const emptyState = busesLoadError
+      ? `<div class="err"><b>Couldn’t load buses from Supabase.</b><br>${esc(busesLoadError)}<br><br>Check the project URL and public key, and confirm the buses table allows reading.</div>`
+      : '<p class="muted">No buses were returned by this Supabase project. Check that its buses table contains route rows.</p>';
     m.innerHTML = '<h2>Available Buses</h2>' + (buses.length ? buses.map(b => {
       const loc = locs[b.id];
       const isLocked = isBusLockedByOther(b.id);
@@ -544,7 +558,7 @@ async function busList() {
           </div>
         </div>
       `;
-    }).join('') : '<p class="muted">No buses configured yet.</p>');
+    }).join('') : emptyState);
   };
   draw();
   tick = setInterval(draw, 1500);
