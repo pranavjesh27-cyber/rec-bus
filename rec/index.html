@@ -143,6 +143,11 @@ const myDeviceId = localStorage.getItem('bus_tracker_device_id') || (() => {
 
 let buses = [], locs = {}, stopsCache = {}, map, liveChannel, tick, watchId, demoTimer, sharing = null;
 let busesLoadError = '';
+let routeVersion = 0, activeRouteHash = location.hash;
+
+function isCurrentRoute(version) {
+  return version === routeVersion && activeRouteHash === location.hash;
+}
 
 const rn = b => (b.name.match(/\d+/) || ['🚌'])[0];
 const esc = t => String(t || '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -209,6 +214,8 @@ const badge = (b, l) => {
 function cleanup() {
   if (map) { map.remove(); map = null; }
   clearInterval(tick);
+  tick = null;
+  window.onRealtimeTick = null;
 }
 
 // Load buses and locations from database
@@ -523,9 +530,10 @@ function home() {
 }
 
 /* ---------- 2. BUS LIST PAGE ---------- */
-async function busList() {
+async function busList(routeId = routeVersion) {
   app.innerHTML = '<main><h2>Available Buses</h2><p class="muted" id="bl">Loading buses…</p></main>';
   await loadBuses();
+  if (!isCurrentRoute(routeId)) return;
   const draw = () => {
     const m = app.querySelector('main');
     if (!m) return;
@@ -566,8 +574,9 @@ async function busList() {
 }
 
 /* ---------- 3. TRACK LIVE MAP PAGE ---------- */
-async function track(id) {
+async function track(id, routeId = routeVersion) {
   await loadBuses();
+  if (!isCurrentRoute(routeId)) return;
   const b = buses.find(x => x.id == id);
   if (!b) {
     app.innerHTML = '<main><h2>Bus not found</h2><p class="muted">Route not found. <a href="#/buses">Back to buses</a></p></main>';
@@ -577,6 +586,7 @@ async function track(id) {
   // Load stops
   if (!stopsCache[id]) {
     const { data: st } = await sb.from('bus_stops').select('*').eq('bus_id', id).order('stop_order');
+    if (!isCurrentRoute(routeId)) return;
     stopsCache[id] = st || [];
   }
   const stops = stopsCache[id] || [];
@@ -782,8 +792,10 @@ async function track(id) {
 }
 
 /* ---------- 4. SHARE LOCATION PAGE (WITH EXCLUSIVITY LOCK) ---------- */
-async function share() {
+async function share(routeId = routeVersion) {
+  app.innerHTML = '<main><h2>Share Bus Location</h2><p class="muted">Loading share options…</p></main>';
   await loadBuses();
+  if (!isCurrentRoute(routeId)) return;
   const searchParams = new URLSearchParams(location.hash.includes('?') ? location.hash.split('?')[1] : '');
   const preselectId = searchParams.get('bus') || (buses[0] ? buses[0].id : '');
 
@@ -927,17 +939,19 @@ async function share() {
 
 /* ---------- 5. ROUTER ---------- */
 function route() {
+  const routeId = ++routeVersion;
+  activeRouteHash = location.hash;
   try {
-    if (sharing && location.hash !== '#/share') stopShare();
-    cleanup();
     const h = location.hash.replace('#', '') || '/';
+    if (sharing && !h.startsWith('/share')) stopShare();
+    cleanup();
     if (h.startsWith('/track/')) {
       const busId = h.split('/')[2];
-      track(busId);
+      track(busId, routeId);
     } else if (h.startsWith('/buses')) {
-      busList();
+      busList(routeId);
     } else if (h.startsWith('/share')) {
-      share();
+      share(routeId);
     } else {
       home();
     }
