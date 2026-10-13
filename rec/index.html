@@ -798,11 +798,27 @@ async function share(routeId = routeVersion) {
   if (!isCurrentRoute(routeId)) return;
   const searchParams = new URLSearchParams(location.hash.includes('?') ? location.hash.split('?')[1] : '');
   const preselectId = searchParams.get('bus') || (buses[0] ? buses[0].id : '');
+  let lastDrawKey = null;
 
   const drawShare = () => {
     const selEl = document.getElementById('sel');
     const curBusId = selEl ? selEl.value : (preselectId || (buses[0] ? buses[0].id : ''));
     const curBus = buses.find(b => b.id == curBusId);
+    const lock = curBusId ? isBusLockedByOther(curBusId) : false;
+    const lockSignature = buses.filter(b => b.is_active)
+      .map(b => `${b.id}:${isBusLockedByOther(b.id) ? '1' : '0'}`).join(',');
+    const drawKey = sharing
+      ? `sharing:${sharing.id}:${sharing.demo}`
+      : `selection:${curBusId}:${lockSignature}`;
+
+    if (drawKey === lastDrawKey) {
+      if (!sharing && lock) {
+        const ageEl = document.getElementById('lock-age');
+        if (ageEl) ageEl.textContent = `${lock.ageSec}s`;
+      }
+      return;
+    }
+    lastDrawKey = drawKey;
 
     // If currently broadcasting
     if (sharing) {
@@ -854,8 +870,6 @@ async function share(routeId = routeVersion) {
     }
 
     // If NOT currently sharing
-    const lock = curBusId ? isBusLockedByOther(curBusId) : false;
-
     app.innerHTML = `
       <main>
         <h2>Share Bus Location</h2>
@@ -883,7 +897,7 @@ async function share(routeId = routeVersion) {
                   </div>
                   <p style="margin-top:10px;font-size:0.88rem;color:#881337;">
                     To prevent conflicting locations on the map, <b>only one person can share at a time</b>.
-                    Last GPS ping received <b>${lock.ageSec}s ago</b>.
+                    Last GPS ping received <b id="lock-age">${lock.ageSec}s</b> ago.
                   </p>
                   <a class="btn p" style="width:100%;margin-top:12px;" href="#/track/${curBus.id}">📍 Track This Bus on Live Map</a>
                   <p class="muted" style="margin-top:8px;font-size:0.78rem;text-align:center;">
@@ -941,6 +955,7 @@ async function share(routeId = routeVersion) {
 function route() {
   const routeId = ++routeVersion;
   activeRouteHash = location.hash;
+  window.scrollTo(0, 0);
   try {
     const h = location.hash.replace('#', '') || '/';
     if (sharing && !h.startsWith('/share')) stopShare();
